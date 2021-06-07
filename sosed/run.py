@@ -1,3 +1,4 @@
+import json
 import os
 import numpy as np
 
@@ -72,7 +73,8 @@ def vectorize(processed_data: ProcessedData, force: bool) -> None:
 
 
 def analyze(
-        processed_data: ProcessedData, min_stars: int, closest: int, explain: bool, metric: str, language: str
+        processed_data: ProcessedData, min_stars: int, closest: int, explain: bool, metric: str, language: str,
+        save_topics: bool, output_dir: str = None
 ) -> None:
     """
     Find similar projects for repositories based on their numerical representations.
@@ -84,6 +86,8 @@ def analyze(
     KL-divergence of their topic distributions. `cosine` sorts projects based on the cosine similarity of their
     representaitons.
     :param language: if not None, analysis uses only projects with this language.
+    :param save_topics: whether to save the repositories' topics to a file.
+    :param output_dir: directory to store the repositories' topics if necessary.
     :return:
     """
     project_vectors = get_project_vectors(min_stars)
@@ -110,6 +114,9 @@ def analyze(
 
     distances, indices = index.search(repo_vectors, closest)
 
+    if save_topics:
+        topics_data = {}
+
     for repo_name, repo_vector, dist_vector, idx in zip(repo_names, repo_vectors, distances, indices):
         print()
         print('-----------------------')
@@ -132,6 +139,12 @@ def analyze(
                     f'{", ".join([f"{token} ({count})" for token, count in stats["top_by_cluster"][dim]])}'
                 )
             print()
+
+            if save_topics:
+                topics_data[repo_name] = {"topics": [{"topic": clusters_info[topic][0],
+                                                      "weight": float(format(repo_vector[topic], '.2f')),
+                                                      "words": [token for token, _ in stats["top_by_cluster"][topic]]}
+                                                     for topic in top_topics]}
 
         if metric == 'kl':
             baseline = (repo_vector * np.log(repo_vector)).sum()
@@ -166,6 +179,10 @@ def analyze(
 
         print('-----------------------')
 
+    if save_topics:
+        with open(f'{output_dir}/topics_data.json', 'w') as outfile:
+            json.dump(topics_data, outfile, indent=1)
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -193,9 +210,12 @@ if __name__ == "__main__":
                         help="If passed, specifies the language of reference projects. "
                              "Notice, that language data was extracted with GHTorrent and for some projects language "
                              "information is missing.")
+    parser.add_argument("--save_topics", action="store_true",
+                        help="If passed, the data on the repositories' topics will be saved in the output directory.")
     args = parser.parse_args()
 
     tokenize(args.input, args.output, args.batches, args.local, args.force)
     processed_data = ProcessedData(Path(args.output))
     vectorize(processed_data, args.force)
-    analyze(processed_data, args.min_stars, args.closest, args.explain, args.metric, args.lang)
+    analyze(processed_data, args.min_stars, args.closest, args.explain, args.metric, args.lang, args.save_topics,
+            args.output)
